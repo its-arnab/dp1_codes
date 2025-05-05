@@ -8,18 +8,19 @@
 #include<math.h>
 #include<stdlib.h>
 #include<time.h>
+#include<unistd.h>
 /* -------------------- */
 
 
 /* ---- System specification ----- */
-#define     N           200                            /* Total Number of Paricles ----- */
+#define     N           10000                           /* Total Number of Paricles ----- */
 #define     rho         0.20                           /* density of system ------------ */
 #define     L           sqrt((double) N / rho)         /* Lenght of box ---------------- */
 #define     L_by2       0.50 * L                       /* Half Length of box ----------- */
 
-const int    max_step = (int) 1e6;                     /* No. of steps simulation run -- */
+const int    max_step = (int) 1e5;                     /* No. of steps simulation run -- */
 const double T_res = 1.0;                              /* Reserver Temperature --------- */
-const double dt = 0.001;                               /* time step for integration ---- */
+const double dt = 0.002;                               /* time step for integration ---- */
 const double half_dt = 0.5 * dt;                       /* half time step for ----------- */
 const double K = 0.1;                                  /* Velocity spin coupling ------- */
 const double J = 1.0;                                  /* NN coupling ------------------ */
@@ -229,9 +230,6 @@ void load_initial_velocity()
 {
     double sumpx = 0.0, sumpy = 0.0;
 
-    // Initize the seed 
-    srand48(time(NULL));
-
     for(int i=0; i<N; i++)
     {
         px[i] = 2.0 * drand48() - 1.0;
@@ -303,6 +301,10 @@ void ProgramInitializer(int mode)
     allocate_arrays();
     printf("Arrays are allocated. \n");
     printf(" -------------------------- \n");
+
+    // Initize the seed 
+    long seed = time(NULL) ^ (getpid() << 16);
+    srand48(seed); // seed for drand48()
 
     if (mode)
     {
@@ -848,8 +850,22 @@ void deallocate_arrays()
 }
 
 
-int main()
+int main(int argc, char *argv[])
 {
+    /* --- Check for command line arguments --- */
+    if (argc != 2)
+    {
+        fprintf(stderr, "Usage: %s <run_id>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    const char *run_id = argv[1];
+
+    char base_path[128], make_dir[150];
+    sprintf(base_path, "magnetisation_data/N_%05d", N);
+    sprintf(make_dir, "mkdir -p %s", base_path);
+    system(make_dir);
+
     int swit = 1;       // switch to control , 1 (new), 0 (old)
     double spin_sumx = 0.0, spin_sumy = 0.0;
     double magnetization = 0.0;
@@ -873,17 +889,17 @@ int main()
     H_nose0 = KE + RE + PE + E_s;
 
     // Equilibriate the system
-    for (int i = 0; i < (int)2e4; i++)
+    for (int i = 0; i < (int)4e5; i++)
     {
         // debug
-        double sumpx = 0.0, sumpy = 0.0, sump;
-        for (int i = 0; i < N; i++) sumpx += px[i];
-        for (int i = 0; i < N; i++) sumpy += py[i];
-        sump = sumpx*sumpx + sumpy*sumpy;
-        if ( sump > 1e-10){
-            printf("\n Mistake detected = %.12lf\n", sqrt(sump));
-            exit(1);
-        }
+        // double sumpx = 0.0, sumpy = 0.0, sump;
+        // for (int i = 0; i < N; i++) sumpx += px[i];
+        // for (int i = 0; i < N; i++) sumpy += py[i];
+        // sump = sumpx*sumpx + sumpy*sumpy;
+        // if ( sump > 1e-10){
+        //     printf("\n Mistake detected = %.12lf\n", sqrt(sump));
+        //     exit(1);
+        // }
 
         integrate();
     }
@@ -895,15 +911,6 @@ int main()
     // save data from here
     for (int step = 0; step < max_step; step++)
     {
-        // debug
-        double sumpx = 0.0, sumpy = 0.0, sump;
-        for (int i = 0; i < N; i++) sumpx += px[i];
-        for (int i = 0; i < N; i++) sumpy += py[i];
-        sump = sumpx*sumpx + sumpy*sumpy;
-        if ( sump > 1e-10){
-            printf("\nmistake detected = %.12lf\n", sqrt(sump));
-            exit(1);
-        }
 
         spin_sumx = 0.0;
         spin_sumy = 0.0;
@@ -917,30 +924,26 @@ int main()
     
         integrate();    
     }
+
     
     magnetization = magnetization / (double) max_step;  // avg over realisation
     magnetization = magnetization / (double) N;         // avg per particle
 
     /* ------------ Saving avg -------------- */
-    char filename1[128];
-    sprintf(filename1, "magnetisation_data/N_%05d", N);
+    char filename1[512];
+    sprintf(filename1, "%s/%s", base_path, run_id);
+
     FILE *fid1;
     fid1 = fopen(filename1, "a");
+    if (fid1 == NULL) {
+        printf("Error opening file: %s\n", filename1);
+        return EXIT_FAILURE;
+    }
     fprintf(fid1, "%.5lf\t %.12lf \n", T_res, magnetization);
     if (!fid1) printf("Error! while opening fid1");
     fclose(fid1);
     /* -------------------------------------- */
 
-    /* ----------- Final Config ------------- */
-    char final_snapshot[128];
-    sprintf(final_snapshot, "final_config/N_%05d_T_%.5f", N, T_res);
-    FILE *fid2;
-    fid2 = fopen(final_snapshot, "w");
-    if(!fid2) printf("Error! while opening fid2");
-    for (int i = 0; i < N; i++) 
-    fprintf(fid2, "%.8lf\t %.8lf\t %.8lf\n", x[i], y[i], theta[i]);
-    fclose(fid2);
-    /* -------------------------------------- */
 
     deallocate_arrays();
     
